@@ -335,7 +335,7 @@ a.btn{text-decoration:none;color:inherit}
 /* ================= CẤU HÌNH =================
    API_URL để trống = chạy thử với dữ liệu mẫu trong máy.
    Dán link Apps Script (/exec) vào đây để dùng dữ liệu thật. */
-const CONFIG = { API_URL: 'https://script.google.com/macros/s/AKfycbwKWNfHVk_fH6wH44f3O-ZhwfhQ17-jSDgwqGB54-So75Hv4UuFHjZuwotfa9M3DJb3uw/exec', TEN: 'Gia phả họ Nguyễn' };
+const CONFIG = { API_URL: 'https://script.google.com/macros/s/AKfycbwKWNfHVk_fH6wH44f3O-ZhwfhQ17-jSDgwqGB54-So75Hv4UuFHjZuwotfa9M3DJb3uw/exec', TEN: 'Gia phả họ Nguyễn', KHO: '' };
 
 const DEMO = !CONFIG.API_URL;
 const NEED_SERVER = '6';
@@ -350,10 +350,11 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fold = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase();
 const num = (v, d = 0) => { const n = parseInt(v, 10); return isNaN(n) ? d : n; };
+const NS = CONFIG.KHO ? CONFIG.KHO + '_' : '';   // bản thử lưu riêng, không lẫn với bản chính
 const store = {
-  get(k){ try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch(e){ return null; } },
-  set(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){} },
-  del(k){ try { localStorage.removeItem(k); } catch(e){} }
+  get(k){ try { const v = localStorage.getItem(NS + k); return v ? JSON.parse(v) : null; } catch(e){ return null; } },
+  set(k, v){ try { localStorage.setItem(NS + k, JSON.stringify(v)); } catch(e){} },
+  del(k){ try { localStorage.removeItem(NS + k); } catch(e){} }
 };
 const I = {
   search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
@@ -693,7 +694,7 @@ async function demoApi(a, y){
 function logout(silent){ S.token = null; S.me = null; S.users = null; S.logs = null; store.del('gp_token'); store.del('gp_data');
   S.overlay = null; S.form = null; renderOverlay(); render(); if (!silent) toast('Đã đăng xuất'); }
 function applyData(d){
-  S.me = d.me; S.entryMode = d.entryMode; S.title = d.title || CONFIG.TEN; S.hist = d.history || []; S.opts = d.options || { sinhNhat:false }; S.serverVersion = d.serverVersion || ''; reindex(d.people || []);
+  S.me = d.me; S.entryMode = d.entryMode; S.title = d.title || CONFIG.TEN; S.hist = d.history || []; S.opts = d.options || { sinhNhat:false }; S.serverVersion = d.serverVersion || ''; S.test = !!d.test; reindex(d.people || []);
   if (!S.focus || !P(S.focus)){ const saved = store.get('gp_focus'); S.focus = saved && P(saved) ? saved : defaultFocus(); }
 }
 function defaultFocus(){ if (DEMO && P('p5')) return 'p5'; const r = S.list.find(p => !p.ngoaiToc && !clanParent(p)); return r ? r.id : (S.list[0] && S.list[0].id); }
@@ -748,6 +749,7 @@ function viewHTML(){
 }
 function banners(){
   let b = '';
+  if (CONFIG.KHO || S.test) b += `<div class="banner" style="background:#FCEBEB;color:#A32D2D"><b>BẢN THỬ.</b> Chỉ để thử tính năng, không phải gia phả chính.</div>`;
   if (DEMO) b += `<div class="banner">Bản chạy thử với dữ liệu mẫu. Mọi thay đổi chỉ lưu trong máy này.</div>`;
   if (isAdmin() && S.serverVersion !== NEED_SERVER) b += `<div class="banner">Apps Script đang chạy bản cũ. Dán Code.gs mới, chạy caiDat, rồi triển khai Phiên bản mới.</div>`;
   if (S.offline) b += `<div class="banner">Không có mạng. Đang xem bản đã lưu trong máy.</div>`;
@@ -1496,7 +1498,7 @@ function reportErr(m){ try { if (DEMO || !S.token || errSent >= 5) return; errSe
   api('logError', { msg: String(m).slice(0, 400) + ' | ' + navigator.userAgent.slice(0, 120) }).catch(() => {}); } catch(e){} }
 addEventListener('error', e => reportErr((e.message || 'Lỗi') + ' @' + String(e.filename || '').split('/').pop() + ':' + (e.lineno || '')));
 addEventListener('unhandledrejection', e => reportErr('Promise: ' + (e.reason && e.reason.message || e.reason)));
-if (!DEMO && 'serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+if (!DEMO && !CONFIG.KHO && 'serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 </script>
 
 
