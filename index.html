@@ -897,7 +897,7 @@ async function demoApi(a, y){
       nd.pw = y.new; demoSave(); return { token:S.token };
   }
   if (nd.vaiTro !== 'admin') throw new Error('Chỉ người quản trị được làm thao tác này');
-  const pub = () => db.users.map(u => ({ tenDangNhap:u.tenDangNhap, hoTen:u.hoTen, vaiTro:u.vaiTro, chi:u.chi, nguoiId:u.nguoiId || '', khoa:!!u.khoa, khoaTam:false }));
+  const pub = () => db.users.map(u => ({ tenDangNhap:u.tenDangNhap, hoTen:u.hoTen, vaiTro:u.vaiTro, chi:u.chi, nguoiId:u.nguoiId || '', khoa:!!u.khoa, khoaTam:false, macDinh: u.pw === MK_MD }));
   switch (a){
     case 'users': return { users: pub() };
     case 'digestNow': return { sent:false, count:0 };
@@ -1445,17 +1445,17 @@ function logHTML(l, i){
 const HD = { cham:'Chậm', loi_may_chu:'Lỗi máy chủ', khoi_phuc:'Khôi phục', sao_luu:'Sao lưu', loi:'Lỗi trên máy', them:'Thêm', sua:'Sửa', xoa:'Xóa', anh:'Đổi ảnh', mo_nhap_lieu:'Mở nhập liệu', dong_nhap_lieu:'Đóng nhập liệu', tao_tai_khoan:'Tạo tài khoản', sua_tai_khoan:'Sửa tài khoản', khoa_tam:'Khóa tạm', doi_mat_khau:'Đổi mật khẩu', dang_nhap:'Đăng nhập', lich_su:'Sửa lịch sử họ', tuy_chon:'Đổi tùy chọn' };
 function bulkCands(){ const has = {}; (S.users || []).forEach(u => { if (u.nguoiId) has[u.nguoiId] = 1; });
   return S.list.filter(p => p.conSong && !p.ngoaiToc && p.hoTen !== 'Khuyết danh' && !has[p.id]).sort((a, b) => a._doi - b._doi || num(a.namSinh, 9999) - num(b.namSinh, 9999)); }
-const chauNgoai = p => { const c = P(p.chaId); return !!(c && c.ngoaiToc); };
 function bulkHTML(){
   if (S.users === null) return '';
   const c = bulkCands(), nAcc = (S.users || []).filter(u => u.nguoiId).length;
-  // Mặc định chọn người họ Nguyễn theo cha, từ 16 tuổi; cháu ngoại (cha là rể) để admin tự chọn
-  if (!S.bulkSel) S.bulkSel = Object.fromEntries(c.map(p => [p.id, (!num(p.namSinh, 0) || NOW_Y - num(p.namSinh) >= 16) && !chauNgoai(p)]));
+  // Mặc định chọn người trong họ (markHo), từ 16 tuổi; cháu ngoại họ khác để admin tự chọn
+  if (!S.bulkSel) S.bulkSel = Object.fromEntries(c.map(p => [p.id, (!num(p.namSinh, 0) || NOW_Y - num(p.namSinh) >= 16) && p._ho]));
   const n = c.filter(p => S.bulkSel[p.id]).length;
-  return `<div class="panel"><p class="thint" style="margin:0 0 8px">Đã cấp ${nAcc} tài khoản. Còn ${c.length} người họ Nguyễn còn sống chưa có tài khoản (mặc định chọn người từ 16 tuổi).
+  return `<div class="panel"><p class="thint" style="margin:0 0 8px">Đã cấp ${nAcc} tài khoản${nAcc ? ` (${(S.users || []).filter(u => u.nguoiId && u.macDinh).length} người chưa đổi mật khẩu ${MK_MD})` : ''}. Còn ${c.length} người họ Nguyễn còn sống chưa có tài khoản (mặc định chọn người từ 16 tuổi).
     Mỗi người một tài khoản, sửa được gia đình mình: bản thân, vợ/chồng, con cháu.</p>
+    ${nAcc ? `<div class="acts" style="justify-content:flex-start;margin:0 0 8px"><button class="btn sm pri" data-act="acclist">${ic('print', 16)}Danh sách tài khoản</button></div>` : ''}
     ${c.length ? `<div class="acts" style="justify-content:flex-start;margin:0"><button class="btn sm" data-act="bulkopen">${S.bulkOpen ? 'Thu gọn' : 'Xem, bỏ chọn'}</button><button class="btn sm pri" data-act="bulkgo"${n ? '' : ' disabled'}>${S.bulkArm ? 'Bấm lần nữa để tạo' : 'Tạo ' + n + ' tài khoản'}</button></div>` : ''}
-    ${S.bulkOpen ? `<div style="margin-top:8px;max-height:360px;overflow:auto">${c.map(p => `<label class="kd" style="margin:4px 0"><input type="checkbox" data-bulk="${p.id}"${S.bulkSel[p.id] ? ' checked' : ''}>${esc(p.hoTen)} <span class="thint">· đời ${p._doi}${chauNgoai(p) ? ' · cháu ngoại' : ''}${p.namSinh ? ' · ' + esc(p.namSinh) : ''}</span></label>`).join('')}</div>` : ''}</div>`; }
+    ${S.bulkOpen ? `<div style="margin-top:8px;max-height:360px;overflow:auto">${c.map(p => `<label class="kd" style="margin:4px 0"><input type="checkbox" data-bulk="${p.id}"${S.bulkSel[p.id] ? ' checked' : ''}>${esc(p.hoTen)} <span class="thint">· đời ${p._doi}${p._ho ? '' : ' · họ khác'}${p.namSinh ? ' · ' + esc(p.namSinh) : ''}</span></label>`).join('')}</div>` : ''}</div>`; }
 function bulkText(rows){ const link = location.href.split('#')[0].split('?')[0];
   return (S.title || CONFIG.TEN) + ' – ' + link + '\nHọ tên\tTên đăng nhập\tMật khẩu\n' + rows.map(r => r.hoTen + '\t' + r.tenDangNhap + '\t' + r.matKhau).join('\n'); }
 function bulkPrint(rows){ const f = document.createElement('iframe'); f.style.cssText = 'position:fixed;width:0;height:0;border:0'; document.body.appendChild(f);
@@ -1530,7 +1530,7 @@ function adminHTML(){
   else h += S.users.map(u => {
     const me = S.me && u.tenDangNhap === S.me.u;
     return `<div class="urow"><span class="tx"><b style="font-weight:600">${esc(u.hoTen || u.tenDangNhap)}</b> <span class="thint">@${esc(u.tenDangNhap)}</span><br>
-      <span style="font-size:14px;color:var(--muted)">${ROLE[u.vaiTro] || u.vaiTro} · ${esc(chiName(u.chi))}${u.nguoiId && P(u.nguoiId) ? ` · <button data-act="focus" data-id="${u.nguoiId}" style="color:var(--accent);text-decoration:underline;font:inherit">Hồ sơ</button>` : ''}${u.khoa ? ' · <span style="color:var(--danger)">Đã khóa</span>' : ''}${u.khoaTam ? ' · Khóa tạm' : ''}</span></span>
+      <span style="font-size:14px;color:var(--muted)">${ROLE[u.vaiTro] || u.vaiTro} · ${esc(chiName(u.chi))}${u.nguoiId && P(u.nguoiId) ? ` · <button data-act="focus" data-id="${u.nguoiId}" style="color:var(--accent);text-decoration:underline;font:inherit">Hồ sơ</button>` : ''}${u.macDinh ? ' · MK ' + MK_MD : ''}${u.khoa ? ' · <span style="color:var(--danger)">Đã khóa</span>' : ''}${u.khoaTam ? ' · Khóa tạm' : ''}</span></span>
       ${u.vaiTro !== 'admin' ? `<span style="display:flex;align-items:center;gap:8px;font-size:14px">Được sửa <button class="sw" role="switch" aria-checked="${u.vaiTro === 'bientap'}" aria-label="Quyền sửa của ${esc(u.tenDangNhap)}" data-act="urole" data-u="${esc(u.tenDangNhap)}"></button></span>` : ''}
       <span style="display:flex;gap:6px;flex-wrap:wrap;width:100%">
       <button class="btn sm" data-act="ureset" data-u="${esc(u.tenDangNhap)}">${ic('key', 16)}Đặt lại mật khẩu</button>
@@ -1623,7 +1623,7 @@ function renderOverlay(){
   else if (S.overlay === 'photo'){ const p = P(S.focus); const src = p && p.anhId && S.photos[p.anhId];
     inner = src ? `<img class="big" src="${src}" alt="Ảnh ${esc(p.hoTen)}"><p style="text-align:center;font-family:var(--f-name);font-size:20px;margin:12px 0 0">${esc(p.hoTen)}</p>` : `<p class="empty">Chưa có ảnh.${canEdit(p) ? ' Bấm "Sửa thông tin" để thêm ảnh.' : ''}</p>`;
     inner += `<div class="acts"><button class="btn" data-act="close">Đóng</button></div>`; }
-  else if (S.overlay === 'bulk') inner = `<h2>Đã tạo ${S.bulkRes.length} tài khoản</h2><p class="sub">Mật khẩu chỉ hiện lần này. Chép hoặc in ngay, rồi gửi riêng từng người.</p>
+  else if (S.overlay === 'bulk') inner = `<h2>${S.bulkAll ? 'Danh sách ' + S.bulkRes.length + ' tài khoản' : 'Đã tạo ' + S.bulkRes.length + ' tài khoản'}</h2><p class="sub">Mật khẩu ban đầu ${MK_MD}, đăng nhập xong mỗi người tự đổi. Chép hoặc in, gửi riêng từng người.</p>
     <div style="max-height:50vh;overflow:auto;margin-bottom:12px"><table style="width:100%;border-collapse:collapse;font-size:15px">${S.bulkRes.map(r => `<tr style="border-bottom:1px solid var(--line)"><td style="padding:6px 4px">${esc(r.hoTen)}</td><td style="padding:6px 4px;font-weight:600">${esc(r.tenDangNhap)}</td><td style="padding:6px 4px;font-variant-numeric:tabular-nums">${esc(r.matKhau)}</td></tr>`).join('')}</table></div>
     <div class="acts"><button class="btn" data-act="close">Đóng</button><button class="btn" data-act="bulkprint">${ic('print', 18)}In</button><button class="btn pri" data-act="bulkcopy">Chép cả danh sách</button></div>`;
   else if (S.overlay === 'acc') inner = `<h2>Đã cấp tài khoản</h2><p class="sub">Mật khẩu chỉ hiện lần này. Chép gửi qua Zalo ngay.</p>
@@ -1932,7 +1932,9 @@ document.addEventListener('click', async e => {
       const ids = bulkCands().filter(p => S.bulkSel[p.id]).map(p => p.id), out = []; t.disabled = true;
       try { for (let i = 0; i < ids.length; i += 100){ toast('Đang tạo… ' + i + '/' + ids.length); const r = await api('bulkUsers', { ids: ids.slice(i, i + 100) }); out.push(...r.created); S.users = r.users; } }
       catch(er){ toast(er.message); }
-      S.bulkRes = out; S.bulkSel = null; S.overlay = 'bulk'; renderOverlay(); render(true); break; }
+      S.bulkRes = out; S.bulkAll = false; S.bulkSel = null; S.overlay = 'bulk'; renderOverlay(); render(true); break; }
+    case 'acclist': S.bulkRes = (S.users || []).filter(u => u.nguoiId).map(u => ({ hoTen:u.hoTen, tenDangNhap:u.tenDangNhap, matKhau:u.macDinh ? MK_MD : 'Đã tự đổi', d:(P(u.nguoiId) || {})._doi || 99 }))
+        .sort((a, b) => a.d - b.d || a.hoTen.localeCompare(b.hoTen, 'vi')); S.bulkAll = true; S.overlay = 'bulk'; renderOverlay(); break;
     case 'bulkcopy': toast(await copyText(bulkText(S.bulkRes)) ? 'Đã chép. Dán vào Google Sheet hoặc Zalo.' : 'Máy không cho chép'); break;
     case 'bulkprint': bulkPrint(S.bulkRes); break;
     case 'fixone': case 'fixall': { t.disabled = true; const g = t.dataset.g, all = checkData().filter(x => x.g === g && x.fix);
