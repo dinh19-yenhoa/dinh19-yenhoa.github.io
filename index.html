@@ -1456,6 +1456,34 @@ function bulkHTML(){
     ${nAcc ? `<div class="acts" style="justify-content:flex-start;margin:0 0 8px"><button class="btn sm pri" data-act="acclist">${ic('print', 16)}Danh sách tài khoản</button></div>` : ''}
     ${c.length ? `<div class="acts" style="justify-content:flex-start;margin:0"><button class="btn sm" data-act="bulkopen">${S.bulkOpen ? 'Thu gọn' : 'Xem, bỏ chọn'}</button><button class="btn sm pri" data-act="bulkgo"${n ? '' : ' disabled'}>${S.bulkArm ? 'Bấm lần nữa để tạo' : 'Tạo ' + n + ' tài khoản'}</button></div>` : ''}
     ${S.bulkOpen ? `<div style="margin-top:8px;max-height:360px;overflow:auto">${c.map(p => `<label class="kd" style="margin:4px 0"><input type="checkbox" data-bulk="${p.id}"${S.bulkSel[p.id] ? ' checked' : ''}>${esc(p.hoTen)} <span class="thint">· đời ${p._doi}${p._ho ? '' : ' · họ khác'}${p.namSinh ? ' · ' + esc(p.namSinh) : ''}</span></label>`).join('')}</div>` : ''}</div>`; }
+// Tệp Excel (.xlsx) tối giản, không cần thư viện: zip không nén + bảng chữ trực tiếp
+function xlsx(rows, widths){
+  const x = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const col = i => String.fromCharCode(65 + i);
+  const sheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><cols>${widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('')}</cols><sheetData>${rows.map((r, ri) => `<row r="${ri + 1}">${r.map((v, ci) => typeof v === 'number' ? `<c r="${col(ci)}${ri + 1}"><v>${v}</v></c>` : `<c r="${col(ci)}${ri + 1}" t="inlineStr"${ri === 4 ? ' s="1"' : ''}><is><t>${x(v)}</t></is></c>`).join('')}</row>`).join('')}</sheetData></worksheet>`;
+  const f = {
+    '[Content_Types].xml': '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>',
+    '_rels/.rels': '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>',
+    'xl/workbook.xml': '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Tài khoản" sheetId="1" r:id="rId1"/></sheets></workbook>',
+    'xl/_rels/workbook.xml.rels': '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>',
+    'xl/styles.xml': '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="12"/><name val="Arial"/></font><font><b/><sz val="12"/><name val="Arial"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf/></cellStyleXfs><cellXfs count="2"><xf fontId="0"/><xf fontId="1" applyFont="1"/></cellXfs></styleSheet>',
+    'xl/worksheets/sheet1.xml': sheet };
+  const enc = new TextEncoder(), parts = [], dir = []; let off = 0;
+  const crcT = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
+  const crc = b => { let c = ~0; for (const v of b) c = crcT[(c ^ v) & 255] ^ (c >>> 8); return ~c >>> 0; };
+  const hdr = (sig, n) => { const d = new DataView(new ArrayBuffer(n)); d.setUint32(0, sig, true); return d; };
+  Object.entries(f).forEach(([name, s]) => { const nm = enc.encode(name), b = enc.encode(s), c = crc(b);
+    const l = hdr(0x04034b50, 30); l.setUint16(4, 20, true); l.setUint16(6, 0x800, true); l.setUint32(14, c, true); l.setUint32(18, b.length, true); l.setUint32(22, b.length, true); l.setUint16(26, nm.length, true);
+    const g = hdr(0x02014b50, 46); g.setUint16(4, 20, true); g.setUint16(6, 20, true); g.setUint16(8, 0x800, true); g.setUint32(16, c, true); g.setUint32(20, b.length, true); g.setUint32(24, b.length, true); g.setUint16(28, nm.length, true); g.setUint32(42, off, true);
+    parts.push(l, nm, b); dir.push(g, nm); off += 30 + nm.length + b.length; });
+  const dl = dir.reduce((s, p) => s + p.byteLength, 0), e = hdr(0x06054b50, 22);
+  e.setUint16(8, dir.length / 2, true); e.setUint16(10, dir.length / 2, true); e.setUint32(12, dl, true); e.setUint32(16, off, true);
+  return new Blob([...parts, ...dir, e].map(p => p.buffer ? new Uint8Array(p.buffer, p.byteOffset, p.byteLength) : p), { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }); }
+function bulkXlsx(rows){ const link = location.href.split('#')[0].split('?')[0];
+  const data = [[(S.title || CONFIG.TEN).toUpperCase() + ' – TÀI KHOẢN'], ['Trang: ' + link], ['Cách vào: mở trang → nhập tên đăng nhập và mật khẩu → máy nhắc đổi mật khẩu, mỗi người tự đổi.'], [],
+    ['STT', 'Họ và tên', 'Đời', 'Tên đăng nhập', 'Mật khẩu'], ...rows.map((r, i) => [i + 1, r.hoTen, r.d && r.d < 99 ? r.d : (P(r.nguoiId) || {})._doi || '', r.tenDangNhap, r.matKhau])];
+  const a = document.createElement('a'); a.href = URL.createObjectURL(xlsx(data, [6, 30, 7, 18, 14])); a.download = 'Tai-khoan-gia-pha.xlsx'; document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000); }
 function bulkText(rows){ const link = location.href.split('#')[0].split('?')[0];
   return (S.title || CONFIG.TEN) + ' – ' + link + '\nHọ tên\tTên đăng nhập\tMật khẩu\n' + rows.map(r => r.hoTen + '\t' + r.tenDangNhap + '\t' + r.matKhau).join('\n'); }
 function bulkPrint(rows){ const f = document.createElement('iframe'); f.style.cssText = 'position:fixed;width:0;height:0;border:0'; document.body.appendChild(f);
@@ -1625,7 +1653,7 @@ function renderOverlay(){
     inner += `<div class="acts"><button class="btn" data-act="close">Đóng</button></div>`; }
   else if (S.overlay === 'bulk') inner = `<h2>${S.bulkAll ? 'Danh sách ' + S.bulkRes.length + ' tài khoản' : 'Đã tạo ' + S.bulkRes.length + ' tài khoản'}</h2><p class="sub">Mật khẩu ban đầu ${MK_MD}, đăng nhập xong mỗi người tự đổi. Chép hoặc in, gửi riêng từng người.</p>
     <div style="max-height:50vh;overflow:auto;margin-bottom:12px"><table style="width:100%;border-collapse:collapse;font-size:15px">${S.bulkRes.map(r => `<tr style="border-bottom:1px solid var(--line)"><td style="padding:6px 4px">${esc(r.hoTen)}</td><td style="padding:6px 4px;font-weight:600">${esc(r.tenDangNhap)}</td><td style="padding:6px 4px;font-variant-numeric:tabular-nums">${esc(r.matKhau)}</td></tr>`).join('')}</table></div>
-    <div class="acts"><button class="btn" data-act="close">Đóng</button><button class="btn" data-act="bulkprint">${ic('print', 18)}In</button><button class="btn pri" data-act="bulkcopy">Chép cả danh sách</button></div>`;
+    <div class="acts"><button class="btn" data-act="close">Đóng</button><button class="btn" data-act="bulkprint">${ic('print', 18)}In</button><button class="btn" data-act="bulkxlsx">${ic('down', 18)}Tải Excel</button><button class="btn pri" data-act="bulkcopy">Chép cả danh sách</button></div>`;
   else if (S.overlay === 'acc') inner = `<h2>Đã cấp tài khoản</h2><p class="sub">Mật khẩu chỉ hiện lần này. Chép gửi qua Zalo ngay.</p>
     <pre style="white-space:pre-wrap;font:inherit;background:var(--surface2);padding:12px;border-radius:12px;margin:0 0 12px;user-select:all">${esc(S.accMsg)}</pre>
     <div class="acts"><button class="btn" data-act="close">Đóng</button><button class="btn pri" data-act="acccopy">Chép gửi Zalo</button></div>`;
@@ -1937,6 +1965,7 @@ document.addEventListener('click', async e => {
         .sort((a, b) => a.d - b.d || a.hoTen.localeCompare(b.hoTen, 'vi')); S.bulkAll = true; S.overlay = 'bulk'; renderOverlay(); break;
     case 'bulkcopy': toast(await copyText(bulkText(S.bulkRes)) ? 'Đã chép. Dán vào Google Sheet hoặc Zalo.' : 'Máy không cho chép'); break;
     case 'bulkprint': bulkPrint(S.bulkRes); break;
+    case 'bulkxlsx': bulkXlsx(S.bulkRes); break;
     case 'fixone': case 'fixall': { t.disabled = true; const g = t.dataset.g, all = checkData().filter(x => x.g === g && x.fix);
       await applyFix(a === 'fixone' ? all.filter(x => x.p.id === id) : all); break; }
     case 'opttt': try { const r = await api('setOption', { key:'tomTat', on: S.opts.tomTat === false }); S.opts = r.options; render(true); toast(S.opts.tomTat ? 'Đã bật email tóm tắt' : 'Đã tắt email tóm tắt'); } catch(er){ toast(er.message); } break;
