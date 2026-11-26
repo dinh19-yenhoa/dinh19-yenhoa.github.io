@@ -559,13 +559,30 @@ function readPhoto(file){ return new Promise((res, rej) => { const img = new Ima
 /* ---------- gọi máy chủ ---------- */
 async function api(action, payload = {}){
   if (DEMO) return demoApi(action, payload);
-  let r;
+  let r; const t0 = performance.now();
   try { r = await fetch(CONFIG.API_URL, { method:'POST', headers:{ 'Content-Type':'text/plain;charset=utf-8' }, body: JSON.stringify(Object.assign({ action, token: S.token }, payload)) }); }
   catch(e){ const er = new Error('Không có kết nối mạng'); er.net = true; throw er; }
   const j = await r.json();
+  timing(action, performance.now() - t0, j);
   if (!j.ok){ if (j.err === 'HET_PHIEN'){ logout(true); throw new Error('Phiên đăng nhập đã hết. Hãy đăng nhập lại.'); } throw new Error(j.err || 'Có lỗi xảy ra'); }
   return j;
 }
+
+// Đo thời gian mỗi lượt gọi: tổng trên máy người dùng và phần máy chủ xử lý. Chậm quá thì báo về nhật ký.
+let slowSent = 0;
+function timing(action, ms, j){
+  const t = { a:action, tong:Math.round(ms), mc: j && j._ms || 0, ct: j && j._t || '', luc: Date.now() };
+  if (action === 'login') store.set('gp_tdn', t);
+  if (ms > 10000 && j && j._ms != null && action !== 'logError' && slowSent < 3 && S.token){ slowSent++;
+    api('logError', { msg: 'Chậm trên máy người dùng: "' + action + '" mất ' + (ms / 1000).toFixed(1) + ' giây (máy chủ ' + (t.mc / 1000).toFixed(1) + ' giây, còn lại là mạng/điện thoại)' }).catch(() => {}); } }
+function timingHTML(){
+  const t = store.get('gp_tdn'), L = S.logs || [], tu = Date.now() - 7 * 864e5, g = L.filter(x => new Date(x.t).getTime() >= tu);
+  const dn = g.filter(x => x.hd === 'dang_nhap').map(x => { const m = String(x.ct || '').match(/([\d.]+)s, dữ liệu ([\d.]+)s/); return m ? +m[1] + +m[2] : null; }).filter(x => x != null);
+  const n = k => g.filter(x => x.hd === k).length;
+  return `<div class="urow"><span class="tx"><b style="font-weight:600">Theo dõi 7 ngày</b><br><span class="thint">
+    ${dn.length ? `Đăng nhập: máy chủ xử lý trung bình ${(dn.reduce((a, b) => a + b, 0) / dn.length).toFixed(1)} giây.` : ''}
+    ${t ? `Lần đăng nhập gần nhất trên máy này: ${(t.tong / 1000).toFixed(1)} giây (máy chủ ${(t.mc / 1000).toFixed(1)} giây${t.ct ? ': ' + esc(t.ct) : ''}).` : ''}
+    Lỗi máy chủ: ${n('loi_may_chu')} · lỗi trên máy: ${n('loi')} · chậm: ${n('cham')}.</span></span></div>`; }
 
 /* ---------- dữ liệu chạy thử ---------- */
 const DEMO_KEY = 'gp_demo_v6';
@@ -633,7 +650,7 @@ let DB = null;
 function demoDb(){ if (!DB) DB = store.get(DEMO_KEY) || demoSeed(); return DB; }
 function demoSave(){ store.set(DEMO_KEY, DB); }
 function demoLog(u, hd, id, ten, ct){ DB.logs.unshift({ t:new Date().toISOString(), ai:u, hd, id:id || '', ten:ten || '', ct:ct || '' }); DB.logs = DB.logs.slice(0, 200); }
-function demoOpts(db, nd){ return Object.assign({ sinhNhat: !!db.opts.sinhNhat, ngoaiTon: db.opts.ngoaiTon !== false, xungHo: db.opts.xungHo === 'nam' ? 'nam' : 'bac' }, nd.vaiTro === 'admin' ? { autoBackup:true, lastBackup: db.lastBackup || '', nhacEmail: db.opts.nhacEmail !== false } : {}); }
+function demoOpts(db, nd){ return Object.assign({ sinhNhat: !!db.opts.sinhNhat, ngoaiTon: db.opts.ngoaiTon !== false, xungHo: db.opts.xungHo === 'nam' ? 'nam' : 'bac' }, nd.vaiTro === 'admin' ? { autoBackup:true, lastBackup: db.lastBackup || '', nhacEmail: db.opts.nhacEmail !== false, tomTat: db.opts.tomTat !== false } : {}); }
 async function demoApi(a, y){
   await new Promise(r => setTimeout(r, 120));
   const db = demoDb();
@@ -695,6 +712,7 @@ async function demoApi(a, y){
   const pub = () => db.users.map(u => ({ tenDangNhap:u.tenDangNhap, hoTen:u.hoTen, vaiTro:u.vaiTro, chi:u.chi, nguoiId:u.nguoiId || '', khoa:!!u.khoa, khoaTam:false }));
   switch (a){
     case 'users': return { users: pub() };
+    case 'digestNow': return { sent:false, count:0 };
     case 'bulkUsers': { const has = {}, names = {}; db.users.forEach(u => { names[u.tenDangNhap] = 1; if (u.nguoiId) has[u.nguoiId] = 1; }); const out = [];
       (y.ids || []).slice(0, 150).forEach(id => { const p = db.people.find(x => x.id === id); if (!p || has[id] || p.hoTen === 'Khuyết danh') return;
         S.users = db.users; const u = genUser(p), pw = genPin(); db.users.push({ tenDangNhap:u, hoTen:p.hoTen, vaiTro:'xem', chi:effChi(p), pw, khoa:false, sai:0, nguoiId:id }); has[id] = 1; out.push({ nguoiId:id, hoTen:p.hoTen, tenDangNhap:u, matKhau:pw }); });
@@ -711,6 +729,7 @@ async function demoApi(a, y){
     case 'delHist': db.history = db.history.filter(h => h.id !== y.id); demoSave(); return { deleted:y.id };
     case 'setOption': if (y.key === 'ngoaiTon') db.opts.ngoaiTon = !!y.on; if (y.key === 'xungHo') db.opts.xungHo = y.value === 'nam' ? 'nam' : 'bac';
       if (y.key === 'nhacEmail') db.opts.nhacEmail = !!y.on;
+      if (y.key === 'tomTat') db.opts.tomTat = !!y.on;
       if (y.key === 'sinhNhat'){ db.opts.sinhNhat = !!y.on; demoLog(nd.tenDangNhap, 'tuy_chon', '', '', 'Sinh nhật: ' + (y.on ? 'hiện' : 'ẩn')); }
       demoSave(); return { options: demoOpts(db, nd) };
     case 'remindNow': { const r = monthText(NOW_Y, NOW.getMonth() + 1); if (y.send) demoLog(nd.tenDangNhap, 'nhac_thang', '', '', 'Gửi thử email nhắc (bản thử không gửi thật)'); demoSave(); return { text:r.text, count:r.count, sent:false }; }
@@ -1177,7 +1196,7 @@ function logHTML(l, i){
   else if (ct && l.hd === 'xoa'){ if (!P(l.id)) act = `<button class="btn sm" data-act="undo" data-i="${i}">${S.undoArm === i ? 'Bấm lần nữa để khôi phục' : 'Khôi phục'}</button>`; }
   else if (l.ct && !ct) body = `<div class="thint">${esc(l.ct)}</div>`;
   return `<div class="log"><b style="font-weight:500">${esc(l.ai)}</b> · ${esc(HD[l.hd] || l.hd)} ${esc(l.ten || '')}${body}<small>${esc(fmtTime(l.t))}</small>${act ? `<div class="hedit">${act}</div>` : ''}</div>`; }
-const HD = { khoi_phuc:'Khôi phục', sao_luu:'Sao lưu', loi:'Lỗi trên máy', them:'Thêm', sua:'Sửa', xoa:'Xóa', anh:'Đổi ảnh', mo_nhap_lieu:'Mở nhập liệu', dong_nhap_lieu:'Đóng nhập liệu', tao_tai_khoan:'Tạo tài khoản', sua_tai_khoan:'Sửa tài khoản', khoa_tam:'Khóa tạm', doi_mat_khau:'Đổi mật khẩu', dang_nhap:'Đăng nhập', lich_su:'Sửa lịch sử họ', tuy_chon:'Đổi tùy chọn' };
+const HD = { cham:'Chậm', loi_may_chu:'Lỗi máy chủ', khoi_phuc:'Khôi phục', sao_luu:'Sao lưu', loi:'Lỗi trên máy', them:'Thêm', sua:'Sửa', xoa:'Xóa', anh:'Đổi ảnh', mo_nhap_lieu:'Mở nhập liệu', dong_nhap_lieu:'Đóng nhập liệu', tao_tai_khoan:'Tạo tài khoản', sua_tai_khoan:'Sửa tài khoản', khoa_tam:'Khóa tạm', doi_mat_khau:'Đổi mật khẩu', dang_nhap:'Đăng nhập', lich_su:'Sửa lịch sử họ', tuy_chon:'Đổi tùy chọn' };
 function bulkCands(){ const has = {}; (S.users || []).forEach(u => { if (u.nguoiId) has[u.nguoiId] = 1; });
   return S.list.filter(p => p.conSong && !p.ngoaiToc && p.hoTen !== 'Khuyết danh' && !has[p.id]).sort((a, b) => a._doi - b._doi || num(a.namSinh, 9999) - num(b.namSinh, 9999)); }
 function bulkHTML(){
@@ -1252,6 +1271,8 @@ function adminHTML(){
       <div class="urow"><span class="tx"><b style="font-weight:600">Ghi cháu ngoại trong cây</b><br><span class="thint">Tắt thì cây dừng ở người con gái, chỉ ghi số con bên ngoại.</span></span><button class="sw" role="switch" aria-checked="${S.opts.ngoaiTon !== false}" aria-label="Ghi cháu ngoại trong cây" data-act="optnt"></button></div>
       <div class="urow"><span class="tx"><b style="font-weight:600">Cách xưng hô</b><br><span class="thint">Dùng cho nút "Gọi thế nào?" (bác, chú, cô, dì, dượng…).</span></span><span class="seg" role="group" aria-label="Cách xưng hô"><button data-act="optxh" data-v="bac" aria-pressed="${XR() === 'bac'}">Miền Bắc</button><button data-act="optxh" data-v="nam" aria-pressed="${XR() === 'nam'}">Miền Nam</button></span></div>
       <div class="urow"><span class="tx"><b style="font-weight:600">Sao lưu</b><br><span class="thint">${S.opts.autoBackup ? 'Tự động mỗi Chủ nhật. ' : 'Chưa bật tự động: chạy hàm caiDat trong Apps Script. '}Lần gần nhất: ${S.opts.lastBackup ? esc(fmtTime(S.opts.lastBackup)) : 'chưa có'}</span></span><button class="btn sm" data-act="backup">Sao lưu ngay</button></div>
+      <div class="urow"><span class="tx"><b style="font-weight:600">Email tóm tắt hằng ngày</b><br><span class="thint">7 giờ sáng, chỉ gửi khi có thay đổi dữ liệu, lỗi, chậm hoặc đăng nhập sai nhiều lần.</span></span><span style="display:flex;gap:8px;align-items:center"><button class="btn sm" data-act="digest">Gửi thử</button><button class="sw" role="switch" aria-checked="${S.opts.tomTat !== false}" aria-label="Email tóm tắt hằng ngày" data-act="opttt"></button></span></div>
+      ${timingHTML()}
       <div class="urow"><span class="tx"><b style="font-weight:600">Email nhắc hằng tháng</b><br><span class="thint">Sáng ngày 1 mỗi tháng gửi vào Gmail quản trị danh sách giỗ, sinh nhật, việc họ trong tháng, chép gửi Zalo được ngay.</span></span><span style="display:flex;gap:8px;align-items:center"><button class="btn sm" data-act="remind">Gửi thử</button><button class="sw" role="switch" aria-checked="${!!S.opts.nhacEmail}" aria-label="Email nhắc hằng tháng" data-act="optnhac"></button></span></div>
       <div class="urow"><span class="tx"><b style="font-weight:600">Tải tệp GEDCOM</b><br><span class="thint">Sao lưu cả gia phả. Mở được bằng phần mềm gia phả khác.</span></span><button class="btn sm" data-act="gedcom">${ic('down', 16)}Tải về</button></div>
       <div class="urow"><span class="tx"><b style="font-weight:600">In phả đồ toàn họ</b><br><span class="thint">In hoặc lưu PDF khổ A3. Nên làm trên máy tính.</span></span><button class="btn sm" data-act="printtree">${ic('print', 16)}In</button></div>
@@ -1534,6 +1555,9 @@ document.addEventListener('click', async e => {
     case 'bulkprint': bulkPrint(S.bulkRes); break;
     case 'fixone': case 'fixall': { t.disabled = true; const g = t.dataset.g, all = checkData().filter(x => x.g === g && x.fix);
       await applyFix(a === 'fixone' ? all.filter(x => x.p.id === id) : all); break; }
+    case 'opttt': try { const r = await api('setOption', { key:'tomTat', on: S.opts.tomTat === false }); S.opts = r.options; render(true); toast(S.opts.tomTat ? 'Đã bật email tóm tắt' : 'Đã tắt email tóm tắt'); } catch(er){ toast(er.message); } break;
+    case 'digest': if (!DEMO && num(S.serverVersion, 0) < 8){ toast('Cần cập nhật Apps Script bản mới trước'); break; } t.disabled = true;
+      try { const r = await api('digestNow'); toast(r.sent ? 'Đã gửi email tóm tắt (' + r.count + ' việc)' : 'Bản chạy thử không gửi email'); } catch(er){ toast(er.message); } t.disabled = false; break;
     case 'zalo': { const r = monthText(NOW_Y, NOW.getMonth() + 1); toast(await copyText(r.text) ? 'Đã chép ' + r.count + ' mục. Mở Zalo và dán vào nhóm.' : 'Máy không cho chép tự động'); break; }
     case 'optnhac': try { const r = await api('setOption', { key:'nhacEmail', on: !S.opts.nhacEmail }); S.opts = r.options; render(true); toast(S.opts.nhacEmail ? 'Đã bật email nhắc' : 'Đã tắt email nhắc'); } catch(er){ toast(er.message); } break;
     case 'remind': t.disabled = true; try { const r = await api('remindNow', { send:true }); toast('Đã gửi email (' + r.count + ' mục)'); } catch(er){ toast(er.message); } t.disabled = false; break;
