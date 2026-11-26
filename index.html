@@ -338,7 +338,7 @@ a.btn{text-decoration:none;color:inherit}
 const CONFIG = { API_URL: 'https://script.google.com/macros/s/AKfycbwKWNfHVk_fH6wH44f3O-ZhwfhQ17-jSDgwqGB54-So75Hv4UuFHjZuwotfa9M3DJb3uw/exec', TEN: 'Gia phả họ Nguyễn', KHO: '' };
 
 const DEMO = !CONFIG.API_URL;
-const NEED_SERVER = '6';
+const NEED_SERVER = '7';
 const NOW = new Date();
 const NOW_Y = NOW.getFullYear();
 const S = { token:null, me:null, people:{}, list:[], kids:{}, chis:[], entryMode:true, title:CONFIG.TEN, calView:'list', calY:NOW.getFullYear(), calM:NOW.getMonth() + 1, calSel:null, calRange:3, hist:[], opts:{ sinhNhat:false }, hform:null,
@@ -491,6 +491,21 @@ const isAdmin = () => S.me && S.me.vaiTro === 'admin';
 function canEditChi(chi){ if (!S.me) return false; if (isAdmin()) return true;
   return S.me.vaiTro === 'bientap' && S.entryMode && String(chi || '') === String(S.me.chi || ''); }
 const canEdit = p => p && canEditChi(p.chi);
+const SELF_F = ['dienThoai', 'diaChi', 'ngaySinh', 'ghiChu'];
+const isMe = p => !!(p && S.me && S.me.nguoiId && S.me.nguoiId === p.id);
+const accOf = p => (S.users || []).find(u => u.nguoiId === p.id);
+function ensureUsers(){ if (!isAdmin() || S.users !== null || S.uLoad) return; S.uLoad = true;
+  api('users').then(r => { S.users = r.users; S.uLoad = false; if (S.view === 'family') render(true); }).catch(() => { S.uLoad = false; S.users = []; }); }
+function genUser(p){   // Nguyễn Quốc Văn, 1963 -> vannq63
+  const w = fold(p.hoTen).replace(/[^a-z ]/g, '').trim().split(/\s+/).filter(Boolean);
+  let b = (w.pop() || 'nguoi') + w.map(x => x[0]).join(''); if (b.length < 3) b += 'xx';
+  const y = String(p.namSinh || '').slice(-2); let u = b + y, i = 2;
+  while ((S.users || []).some(x => x.tenDangNhap === u)) u = b + y + (i++);
+  return u.slice(0, 30); }
+function genPin(){ let p; do { const a = new Uint32Array(1); crypto.getRandomValues(a); p = String(a[0] % 900000 + 100000); }
+  while (/^(.)\1+$/.test(p) || '01234567890'.includes(p) || '09876543210'.includes(p)); return p; }
+function accMsg(p, u, pw){ const link = location.href.split('#')[0].split('?')[0];
+  return `Chào ${p.hoTen}, đây là tài khoản xem ${S.title || CONFIG.TEN}:\n${link}\nTên đăng nhập: ${u}\nMật khẩu: ${pw}\n\nBấm link, chọn "Mở bằng trình duyệt" (Chrome/Safari), đăng nhập rồi "Thêm vào màn hình chính". Vào Menu ☰ → Đổi mật khẩu nếu muốn.`; }
 
 /* ---------- ảnh: tải dần, lưu trong máy ---------- */
 const IDB = {
@@ -611,7 +626,7 @@ async function demoApi(a, y){
   if (a === 'login'){ const u = db.users.find(x => x.tenDangNhap === String(y.u || '').trim().toLowerCase());
     if (!u || u.pw !== y.p){ if (u){ u.sai = (u.sai || 0) + 1; demoSave(); if (u.sai >= 5){ u.sai = 0; demoSave(); throw new Error('Nhập sai quá nhiều lần. Tài khoản tạm khóa 15 phút.'); } } throw new Error('Sai tên đăng nhập hoặc mật khẩu'); }
     if (u.khoa) throw new Error('Tài khoản đã bị khóa. Liên hệ người quản trị.');
-    u.sai = 0; demoSave(); return { token:'demo.' + u.tenDangNhap, me:{ u:u.tenDangNhap, hoTen:u.hoTen, vaiTro:u.vaiTro, chi:u.chi } }; }
+    u.sai = 0; demoSave(); return { token:'demo.' + u.tenDangNhap, me:{ u:u.tenDangNhap, hoTen:u.hoTen, vaiTro:u.vaiTro, chi:u.chi, nguoiId:u.nguoiId || '' } }; }
   const nd = db.users.find(x => 'demo.' + x.tenDangNhap === S.token);
   if (!nd || nd.khoa){ logout(true); throw new Error('Phiên đăng nhập đã hết. Hãy đăng nhập lại.'); }
   // Chi tự tính, giống máy chủ
@@ -622,12 +637,14 @@ async function demoApi(a, y){
   const memo = {}; const effChi = (r, g = 0) => { if (memo[r.id] != null) return memo[r.id]; memo[r.id] = r.chi || ''; if (g > 80) return memo[r.id]; const o = goc(r); return memo[r.id] = hl(r.chi || '', r, o ? effChi(o, g + 1) : null); };
   const can = chi => nd.vaiTro === 'admin' || (nd.vaiTro === 'bientap' && db.entryMode && String(chi || '') === String(nd.chi || ''));
   const seePriv = chi => nd.vaiTro === 'admin' || (nd.vaiTro === 'bientap' && String(chi || '') === String(nd.chi || ''));
-  const clone = p => { const o = JSON.parse(JSON.stringify(p)); o.chi = effChi(p); if (o.conSong && !seePriv(o.chi)){ const m = String(o.ngaySinh || '').match(/^\s*(\d{1,2})\s*[\/\-.]\s*(\d{1,2})/); o.dienThoai = ''; o.diaChi = ''; o.ngaySinh = ''; if (db.opts.sinhNhat && m) o.sinhNhat = m[1] + '/' + m[2]; } if (nd.vaiTro === 'xem') o.nguon = ''; return o; };
+  const clone = p => { const o = JSON.parse(JSON.stringify(p)); o.chi = effChi(p); if (o.conSong && !seePriv(o.chi) && nd.nguoiId !== o.id){ const m = String(o.ngaySinh || '').match(/^\s*(\d{1,2})\s*[\/\-.]\s*(\d{1,2})/); o.dienThoai = ''; o.diaChi = ''; o.ngaySinh = ''; if (db.opts.sinhNhat && m) o.sinhNhat = m[1] + '/' + m[2]; } if (nd.vaiTro === 'xem') o.nguon = ''; return o; };
   switch (a){
-    case 'data': return { people: db.people.map(clone), me:{ u:nd.tenDangNhap, hoTen:nd.hoTen, vaiTro:nd.vaiTro, chi:nd.chi }, entryMode: db.entryMode, title: CONFIG.TEN, history: db.history, options: demoOpts(db, nd), serverVersion:'6' };
+    case 'data': return { people: db.people.map(clone), me:{ u:nd.tenDangNhap, hoTen:nd.hoTen, vaiTro:nd.vaiTro, chi:nd.chi, nguoiId:nd.nguoiId || '' }, entryMode: db.entryMode, title: CONFIG.TEN, history: db.history, options: demoOpts(db, nd), serverVersion:'7' };
     case 'save': { const p = y.person; const cu = p.id ? db.people.find(x => x.id === p.id) : null;
       if (!String(p.hoTen || '').trim()) throw new Error('Chưa nhập họ tên');
       if (cu && p.capNhatLuc != null && String(cu.capNhatLuc || '') !== String(p.capNhatLuc || '')) throw new Error('Hồ sơ này vừa được người khác sửa. Đóng lại, mở lại hồ sơ để xem bản mới rồi sửa tiếp.');
+      if (cu && nd.nguoiId === cu.id && !can(effChi(cu))){ const t = SELF_F.reduce((o, k) => (o[k] = p[k] || '', o), {});   // tự sửa hồ sơ của mình
+        Object.assign(cu, t, { capNhatLuc:new Date().toISOString() }); demoLog(nd.tenDangNhap, 'sua', cu.id, cu.hoTen, 'Tự sửa thông tin'); demoSave(); return { person: clone(cu) }; }
       if (cu && !can(effChi(cu))) throw new Error('Bạn không có quyền sửa người này');
       const o2 = goc(p), tren = o2 ? effChi(o2) : null;
       const rieng = nd.vaiTro === 'admin' ? (p.chi || '') : (cu ? cu.chi || '' : (tren != null ? tren : nd.chi));
@@ -647,7 +664,7 @@ async function demoApi(a, y){
       db.people.forEach(x => { const l = String(x.voChong || '').split(',').filter(Boolean); if (l.includes(y.id)) x.voChong = l.filter(i => i !== y.id).join(','); });
       db.people = db.people.filter(x => x.id !== y.id); demoLog(nd.tenDangNhap, 'xoa', y.id, p && p.hoTen, JSON.stringify(p)); demoSave(); return { deleted: y.id }; }
     case 'uploadPhoto': { const p = db.people.find(x => x.id === y.id); if (!p) throw new Error('Không tìm thấy người');
-      if (!can(p.chi)) throw new Error('Bạn không có quyền sửa ảnh người này');
+      if (nd.nguoiId !== p.id && !can(p.chi)) throw new Error('Bạn không có quyền sửa ảnh người này');
       if (p.anhId) delete db.photos[p.anhId]; p.anhId = 'demo-' + Date.now().toString(36); db.photos[p.anhId] = y.data;
       p.capNhatLuc = new Date().toISOString(); demoLog(nd.tenDangNhap, 'anh', p.id, p.hoTen, 'Cập nhật ảnh'); demoSave(); return { anhId: p.anhId, capNhatLuc: p.capNhatLuc }; }
     case 'logError': return { logged:false };
@@ -656,7 +673,7 @@ async function demoApi(a, y){
       nd.pw = y.new; demoSave(); return { token:S.token };
   }
   if (nd.vaiTro !== 'admin') throw new Error('Chỉ người quản trị được làm thao tác này');
-  const pub = () => db.users.map(u => ({ tenDangNhap:u.tenDangNhap, hoTen:u.hoTen, vaiTro:u.vaiTro, chi:u.chi, khoa:!!u.khoa, khoaTam:false }));
+  const pub = () => db.users.map(u => ({ tenDangNhap:u.tenDangNhap, hoTen:u.hoTen, vaiTro:u.vaiTro, chi:u.chi, nguoiId:u.nguoiId || '', khoa:!!u.khoa, khoaTam:false }));
   switch (a){
     case 'users': return { users: pub() };
     case 'backup': db.lastBackup = new Date().toISOString(); demoLog(nd.tenDangNhap, 'sao_luu', '', '', 'Sao lưu (bản thử)'); demoSave(); return { lastBackup: db.lastBackup };
@@ -679,8 +696,12 @@ async function demoApi(a, y){
     case 'saveUser': { const t = y.user, ten = String(t.tenDangNhap || '').trim().toLowerCase();
       if (!/^[a-z0-9._-]{3,30}$/.test(ten)) throw new Error('Tên đăng nhập 3–30 ký tự, chỉ chữ không dấu, số, dấu chấm, gạch');
       let u = db.users.find(x => x.tenDangNhap === ten);
+      const nid = t.nguoiId != null ? String(t.nguoiId) : (u ? u.nguoiId || '' : '');
+      if (nid){ if (!db.people.some(x => x.id === nid)) throw new Error('Không tìm thấy người cần gắn tài khoản');
+        const tr = db.users.find(x => x.nguoiId === nid && x.tenDangNhap !== ten); if (tr) throw new Error('Người này đã có tài khoản "' + tr.tenDangNhap + '"'); }
+      if (u) u.nguoiId = nid;
       if (!u){ if (!t.matKhau || String(t.matKhau).length < 6) throw new Error('Mật khẩu tối thiểu 6 ký tự');
-        db.users.push({ tenDangNhap:ten, hoTen:t.hoTen || '', vaiTro:t.vaiTro || 'xem', chi:t.chi || '', pw:t.matKhau, khoa:false, sai:0 }); demoLog(nd.tenDangNhap, 'tao_tai_khoan', '', ten, t.vaiTro); }
+        db.users.push({ tenDangNhap:ten, hoTen:t.hoTen || '', vaiTro:t.vaiTro || 'xem', chi:t.chi || '', pw:t.matKhau, khoa:false, sai:0, nguoiId:nid }); demoLog(nd.tenDangNhap, 'tao_tai_khoan', '', ten, t.vaiTro); }
       else { if (u === nd && (t.vaiTro !== 'admin' || t.khoa)) throw new Error('Không thể tự hạ quyền hoặc tự khóa tài khoản quản trị của chính mình');
         if (t.matKhau){ if (String(t.matKhau).length < 6) throw new Error('Mật khẩu tối thiểu 6 ký tự'); u.pw = t.matKhau; }
         if (t.vaiTro) u.vaiTro = t.vaiTro; if (t.khoa != null) u.khoa = !!t.khoa; if (t.hoTen != null) u.hoTen = t.hoTen; if (t.chi != null) u.chi = t.chi;
@@ -771,7 +792,7 @@ function familyHTML(){
   if (!p.conSong) facts.push(['Mất', esc(p.ngayMat || p.namMat || 'Chưa rõ năm')]);
   if (p.ngayGio) facts.push(['Giỗ', esc(p.ngayGio) + ' âm lịch' + (p.gioNhuan ? ' (tháng nhuận)' : '')]);
   if (p.anTang) facts.push(['An táng', esc(p.anTang)]);
-  if (p.dienThoai) facts.push(['Điện thoại', `<a href="tel:${esc(fixPhone(p.dienThoai).replace(/[^\d+]/g, ''))}" style="user-select:all">${esc(fixPhone(p.dienThoai))}</a>`]);
+  if (p.dienThoai) facts.push(['Điện thoại', `<a href="tel:${esc(fixPhone(p.dienThoai).replace(/[^\d+]/g, ''))}" style="user-select:all;color:var(--accent)">${esc(fixPhone(p.dienThoai))}</a>`]);
   if (p.diaChi) facts.push(['Địa chỉ', esc(p.diaChi)]);
   if (p.ghiChu) facts.push(['Ghi chú', esc(p.ghiChu)]);
   if (p.nguon && S.me.vaiTro !== 'xem') facts.push(['Nguồn', esc(p.nguon)]);
@@ -784,7 +805,7 @@ function familyHTML(){
   h += `<section class="hero" style="margin-top:${pars.length ? 14 : 4}px"><button data-act="zoomphoto" aria-label="Xem ảnh lớn" style="display:block;margin:0 auto">${av(p, 116)}</button>
     <h1>${esc(p.hoTen)}</h1>${p.tenHuy ? `<div class="tenhuy">${esc(p.tenHuy)}</div>` : ''}<div class="meta">${meta.join(' · ')}${!p.conSong ? ' <span class="tag">Đã mất</span>' : ''}</div>
     ${facts.length ? `<dl class="facts">${facts.map(f => `<dt>${f[0]}</dt><dd>${f[1]}</dd>`).join('')}</dl>` : ''}
-    <div class="acts" style="justify-content:center;margin-top:12px"><button class="btn sm" data-act="xh" data-id="${p.id}">${ic('fam', 18)}Gọi thế nào?</button>${canEdit(p) ? `<button class="btn sm" data-act="edit" data-id="${p.id}">${ic('edit', 18)}Sửa thông tin</button>` : ''}</div></section>`;
+    <div class="acts" style="justify-content:center;margin-top:12px"><button class="btn sm" data-act="xh" data-id="${p.id}">${ic('fam', 18)}Gọi thế nào?</button>${canEdit(p) ? `<button class="btn sm" data-act="edit" data-id="${p.id}">${ic('edit', 18)}Sửa thông tin</button>` : isMe(p) ? `<button class="btn sm" data-act="selfedit" data-id="${p.id}">${ic('edit', 18)}Sửa thông tin của tôi</button>` : ''}</div>${accLine(p)}</section>`;
   if (sps.length) h += `<div class="sec">${p.gioiTinh === 'nu' ? 'Chồng' : 'Vợ'}</div><div class="list">${sps.map(x => rowHTML(x, subLine(x, voLabel(x)))).join('')}</div>`;
   if (kids.length) h += `<div class="sec">Các con (${kids.length})</div><div class="list">${kids.map(x => rowHTML(x, subLine(x, [loaiTag(x), kidsOf(x.id).length ? kidsOf(x.id).length + ' con' : ''].filter(Boolean).join(' · ')))).join('')}</div>`;
   if (sibs.length) h += `<div class="sec">Anh chị em (${sibs.length})</div><div class="list">${sibs.map(x => rowHTML(x, subLine(x))).join('')}</div>`;
@@ -793,6 +814,12 @@ function familyHTML(){
     h += `<div class="sec">Thêm người</div><div class="list">${ad('con', 'Thêm con')}${ad('vo', p.gioiTinh === 'nu' ? 'Thêm chồng' : 'Thêm vợ')}${pars.length ? ad('anhem', 'Thêm anh chị em') : ''}${!pars.length && isAdmin() && !p.ngoaiToc ? ad('cha', 'Thêm cha (đời trên)') : ''}${p.ngoaiToc && !P(p.chaId) ? ad('bcha', 'Thêm cha đẻ') : ''}${p.ngoaiToc && !P(p.meId) ? ad('bme', 'Thêm mẹ đẻ') : ''}</div>`;
   }
   return h + `</div>`;
+}
+function accLine(p){
+  if (!isAdmin() || !p.conSong || p.hoTen === 'Khuyết danh') return '';
+  ensureUsers(); if (S.users === null) return '';
+  const u = accOf(p);
+  return `<div class="acts" style="justify-content:center;margin-top:8px;font-size:14px;color:var(--muted);align-items:center">${u ? `Tài khoản: <b style="font-weight:600;color:var(--text)">${esc(u.tenDangNhap)}</b>${u.vaiTro === 'bientap' ? ' (được sửa)' : ''}${u.khoa ? ' · đã khóa' : ''}<button class="btn sm" data-act="accreset" data-id="${p.id}">${ic('key', 16)}Cấp mật khẩu mới</button>` : `<button class="btn sm" data-act="accnew" data-id="${p.id}">${ic('key', 16)}Cấp tài khoản</button>`}</div>`;
 }
 function shortName(p){ const w = p.hoTen.trim().split(/\s+/); const t = w[w.length - 1] || p.hoTen;
   if (p._doi === 1 && !p.ngoaiToc) return 'Cụ ' + t; return t; }
@@ -1011,7 +1038,7 @@ function xungHo(a, b){
   for (const s of spouses(B)){ const r2 = bloodRel(a, s.id); if (r2) return { t:inLawTerm(bloodTerm(a, s.id, r2), B.gioiTinh === 'nu'), path:pathOf(r2).concat(b) }; }
   for (const sa of spouses(A)) for (const sb of spouses(B)){ const r2 = bloodRel(sa.id, sb.id); if (r2) return { t:inLawTerm(bloodTerm(sa.id, sb.id, r2), B.gioiTinh === 'nu'), path:[a].concat(pathOf(r2), b), theo:sa }; }
   return null; }
-const myId = () => { const v = store.get('gp_toi_' + (S.me && S.me.u)); return v && P(v) ? v : null; };
+const myId = () => { if (S.me && S.me.nguoiId && P(S.me.nguoiId)) return S.me.nguoiId; const v = store.get('gp_toi_' + (S.me && S.me.u)); return v && P(v) ? v : null; };
 function xhHTML(){
   const b = S.xhFor, B = P(b), me = myId();
   let h = `<h2>Gọi thế nào?</h2>`;
@@ -1189,14 +1216,14 @@ function adminHTML(){
   else h += S.users.map(u => {
     const me = S.me && u.tenDangNhap === S.me.u;
     return `<div class="urow"><span class="tx"><b style="font-weight:600">${esc(u.hoTen || u.tenDangNhap)}</b> <span class="thint">@${esc(u.tenDangNhap)}</span><br>
-      <span style="font-size:14px;color:var(--muted)">${ROLE[u.vaiTro] || u.vaiTro} · ${esc(chiName(u.chi))}${u.khoa ? ' · <span style="color:var(--danger)">Đã khóa</span>' : ''}${u.khoaTam ? ' · Khóa tạm' : ''}</span></span>
+      <span style="font-size:14px;color:var(--muted)">${ROLE[u.vaiTro] || u.vaiTro} · ${esc(chiName(u.chi))}${u.nguoiId && P(u.nguoiId) ? ` · <button data-act="focus" data-id="${u.nguoiId}" style="color:var(--accent);text-decoration:underline;font:inherit">Hồ sơ</button>` : ''}${u.khoa ? ' · <span style="color:var(--danger)">Đã khóa</span>' : ''}${u.khoaTam ? ' · Khóa tạm' : ''}</span></span>
       ${u.vaiTro !== 'admin' ? `<span style="display:flex;align-items:center;gap:8px;font-size:14px">Được sửa <button class="sw" role="switch" aria-checked="${u.vaiTro === 'bientap'}" aria-label="Quyền sửa của ${esc(u.tenDangNhap)}" data-act="urole" data-u="${esc(u.tenDangNhap)}"></button></span>` : ''}
       <span style="display:flex;gap:6px;flex-wrap:wrap;width:100%">
       <button class="btn sm" data-act="ureset" data-u="${esc(u.tenDangNhap)}">${ic('key', 16)}Đặt lại mật khẩu</button>
       ${!me ? `<button class="btn sm${u.khoa ? '' : ' dng'}" data-act="ulock" data-u="${esc(u.tenDangNhap)}">${u.khoa ? 'Mở khóa' : 'Khóa'}</button>` : ''}</span>
       ${S.resetFor === u.tenDangNhap ? `<form data-form="reset" data-u="${esc(u.tenDangNhap)}" style="display:flex;gap:8px;width:100%"><input class="inp" id="rs_pw" type="text" minlength="6" placeholder="Mật khẩu mới, ít nhất 6 ký tự" autocomplete="off" style="flex:1"><button class="btn pri sm" type="submit">Lưu</button></form>` : ''}</div>`;
   }).join('');
-  h += `</div><div class="sec">Thêm tài khoản</div>
+  h += `</div><p class="thint" style="margin:6px 2px 0">Cấp tài khoản cho từng người: mở hồ sơ người đó → "Cấp tài khoản". Mẫu dưới dùng cho tài khoản chung của một hộ.</p><div class="sec">Thêm tài khoản</div>
     <form class="panel" data-form="newuser"><div class="two"><label class="fld"><span>Tên đăng nhập</span><input class="inp" id="nu_u" autocomplete="off" autocapitalize="none" placeholder="tuan"></label>
     <label class="fld"><span>Tên hiển thị</span><input class="inp" id="nu_n" placeholder="Anh Tuấn"></label></div>
     <div class="two"><label class="fld"><span>Chi</span><select class="inp" id="nu_c"><option value="">Dòng chính</option>${S.chis.map(c => `<option>${esc(c)}</option>`).join('')}</select></label>
@@ -1232,11 +1259,15 @@ function renderOverlay(){
   else if (S.overlay === 'menu') inner = `<div class="who">Đang đăng nhập: <b>${esc(S.me.hoTen || S.me.u)}</b> · ${ROLE[S.me.vaiTro] || ''}</div><div class="menu">
     <button class="mi" data-act="view" data-v="lichsu">${ic('book')}Lịch sử dòng họ</button>
     ${isAdmin() ? `<button class="mi" data-act="view" data-v="admin">${ic('shield')}Quản trị và thống kê</button>` : ''}
+    ${S.me && S.me.nguoiId && P(S.me.nguoiId) ? `<button class="mi" data-act="focus" data-id="${S.me.nguoiId}">${ic('fam')}Hồ sơ của tôi</button>` : ''}
     <button class="mi" data-act="pw">${ic('key')}Đổi mật khẩu</button>
     <button class="mi" data-act="logout" style="color:var(--danger)">${ic('out')}Đăng xuất</button></div>`;
   else if (S.overlay === 'photo'){ const p = P(S.focus); const src = p && p.anhId && S.photos[p.anhId];
     inner = src ? `<img class="big" src="${src}" alt="Ảnh ${esc(p.hoTen)}"><p style="text-align:center;font-family:var(--f-name);font-size:20px;margin:12px 0 0">${esc(p.hoTen)}</p>` : `<p class="empty">Chưa có ảnh.${canEdit(p) ? ' Bấm "Sửa thông tin" để thêm ảnh.' : ''}</p>`;
     inner += `<div class="acts"><button class="btn" data-act="close">Đóng</button></div>`; }
+  else if (S.overlay === 'acc') inner = `<h2>Đã cấp tài khoản</h2><p class="sub">Mật khẩu chỉ hiện lần này. Chép gửi qua Zalo ngay.</p>
+    <pre style="white-space:pre-wrap;font:inherit;background:var(--surface2);padding:12px;border-radius:12px;margin:0 0 12px;user-select:all">${esc(S.accMsg)}</pre>
+    <div class="acts"><button class="btn" data-act="close">Đóng</button><button class="btn pri" data-act="acccopy">Chép gửi Zalo</button></div>`;
   else if (S.overlay === 'pw') inner = `<form data-form="pw"><h2>Đổi mật khẩu</h2><p class="sub">Đổi xong, các máy khác đang đăng nhập tài khoản này sẽ bị đăng xuất.</p><div id="ferr"></div>
     <label class="fld"><span>Mật khẩu hiện tại</span><input class="inp" id="pw_o" type="password" autocomplete="current-password"></label>
     <label class="fld"><span>Mật khẩu mới (ít nhất 6 ký tự)</span><input class="inp" id="pw_n" type="password" autocomplete="new-password"></label>
@@ -1285,6 +1316,17 @@ function formHTML(){
   const title = mode === 'edit' ? 'Sửa thông tin' : { con:'Thêm con', vo: base && base.gioiTinh === 'nu' ? 'Thêm chồng' : 'Thêm vợ', anhem:'Thêm anh chị em', cha:'Thêm cha', bcha:'Thêm cha đẻ', bme:'Thêm mẹ đẻ', root:'Nhập thủy tổ' }[rel];
   const sub = mode === 'edit' ? esc(d.hoTen) : rel === 'con' ? `Con của ${esc(base.hoTen)} · Đời ${esc(d.doi)}` : rel === 'vo' ? `Của ${esc(base.hoTen)} · Đời ${esc(d.doi)}` : rel === 'anhem' ? `Anh chị em của ${esc(base.hoTen)}` : rel === 'cha' ? `Cha của ${esc(base.hoTen)}` : rel === 'bcha' || rel === 'bme' ? `${rel === 'bme' ? 'Mẹ' : 'Cha'} đẻ của ${esc(base.hoTen)} (bên ngoài họ)` : 'Người đứng đầu gia phả';
   const cur = S.form.photo || (d.anhId && S.photos[d.anhId]);
+  const photoBox = `<div class="ph"><span class="pv" id="pv">${cur ? `<img src="${cur}" alt="">` : ic('cam', 28)}</span><span class="bts">
+      <span class="btn sm filebtn">${ic('cam', 18)}Chụp ảnh<input type="file" accept="image/*" capture="environment" data-photo aria-label="Chụp ảnh"></span>
+      <span class="btn sm filebtn">${ic('img', 18)}Chọn ảnh<input type="file" accept="image/*" data-photo aria-label="Chọn ảnh từ máy"></span>
+      <span class="thint" style="width:100%">Ảnh tự cắt vuông và thu nhỏ.</span></span></div>`;
+  if (S.form.self) return `<form data-form="person" novalidate><h2>Sửa thông tin của tôi</h2><p class="sub">${esc(d.hoTen)}. Tên, ngày giỗ, cha mẹ do người quản trị sửa.</p>${S.form.err ? `<div class="err">${esc(S.form.err)}</div>` : ''}${photoBox}
+    <label class="fld"><span>Ngày sinh</span><input class="inp" id="f_ngaySinh" value="${esc(d.ngaySinh)}" placeholder="15/8/1985"></label>
+    <label class="fld"><span>Số điện thoại</span><input class="inp" id="f_dienThoai" inputmode="tel" value="${esc(d.dienThoai)}"></label>
+    <label class="fld"><span>Địa chỉ</span><input class="inp" id="f_diaChi" value="${esc(d.diaChi)}"></label>
+    <label class="fld"><span>Ghi chú (nghề nghiệp, nơi công tác…)</span><textarea class="inp" id="f_ghiChu">${esc(d.ghiChu)}</textarea></label>
+    <p class="thint">Chỉ bạn và người quản lý thấy số điện thoại, địa chỉ.</p>
+    <div class="acts"><button type="button" class="btn" data-act="close">Hủy</button><button class="btn pri" type="submit" id="f_save">Lưu</button></div></form>`;
   const tren = rel === 'con' ? base : rel === 'anhem' ? clanParent(base) : (rel === 'root' || rel === 'cha') ? null : (rel === 'vo' || rel === 'bcha' || rel === 'bme') ? false : clanParent(d);
   const showChi = tren !== false && !d.ngoaiToc && (!tren || !tren.chi);
   const radio = (name, val, label, on) => `<label class="chip"><input type="radio" name="${name}" value="${val}"${on ? ' checked' : ''}><span>${label}</span></label>`;
@@ -1294,10 +1336,7 @@ function formHTML(){
     if (sps.length > 1 || (mode === 'edit' && sps.length && !sps.some(x => x.id === d[k])))
       mother = `<label class="fld"><span>${pb.gioiTinh === 'nu' ? 'Cha là' : 'Mẹ là'}</span><select class="inp" id="f_other">${mode === 'edit' ? `<option value=""${d[k] ? '' : ' selected'}>Chưa rõ</option>` : ''}${sps.map(s => `<option value="${s.id}"${d[k] === s.id ? ' selected' : ''}>${esc(s.hoTen)}</option>`).join('')}</select></label>`; }
   return `<form data-form="person" novalidate><h2>${title}</h2><p class="sub">${sub}</p>${S.form.err ? `<div class="err">${esc(S.form.err)}</div>` : ''}
-    <div class="ph"><span class="pv" id="pv">${cur ? `<img src="${cur}" alt="">` : ic('cam', 28)}</span><span class="bts">
-      <span class="btn sm filebtn">${ic('cam', 18)}Chụp ảnh<input type="file" accept="image/*" capture="environment" data-photo aria-label="Chụp ảnh"></span>
-      <span class="btn sm filebtn">${ic('img', 18)}Chọn ảnh<input type="file" accept="image/*" data-photo aria-label="Chọn ảnh từ máy"></span>
-      <span class="thint" style="width:100%">Ảnh tự cắt vuông và thu nhỏ.</span></span></div>
+    ${photoBox}
     <label class="fld"><span>Họ và tên</span><input class="inp" id="f_hoTen" value="${esc(d.hoTen === 'Khuyết danh' ? '' : d.hoTen)}" placeholder="Nguyễn Văn ..." autocomplete="off"${d.hoTen === 'Khuyết danh' ? ' disabled' : ''}></label>
     <label class="kd"><input type="checkbox" id="f_kd"${d.hoTen === 'Khuyết danh' ? ' checked' : ''}>Chưa rõ tên (ghi là khuyết danh)</label>
     <div class="fld"><span>Giới tính</span><div class="chips">${radio('gt', 'nam', 'Nam', d.gioiTinh !== 'nu')}${radio('gt', 'nu', 'Nữ', d.gioiTinh === 'nu')}</div></div>
@@ -1327,6 +1366,7 @@ function formHTML(){
 }
 function readForm(){
   const v = id => { const el = $('#' + id); return el ? el.value.trim() : null; };
+  if (S.form.self){ const d = Object.assign({}, S.form.d); SELF_F.forEach(k => { const x = v('f_' + k); if (x !== null) d[k] = x; }); d.dienThoai = fixPhone(d.dienThoai); return d; }
   const r = name => { const el = document.querySelector(`input[name="${name}"]:checked`); return el ? el.value : null; };
   const d = Object.assign({}, S.form.d);
   d.hoTen = ($('#f_kd') && $('#f_kd').checked) ? 'Khuyết danh' : v('f_hoTen'); d.gioiTinh = r('gt') || 'nam'; d.namSinh = v('f_namSinh'); d.thuTu = v('f_thuTu');
@@ -1395,6 +1435,15 @@ document.addEventListener('click', async e => {
     case 'logout': logout(); break;
     case 'zoomphoto': S.overlay = 'photo'; renderOverlay(); break;
     case 'edit': openForm('edit', null, id); break;
+    case 'selfedit': openForm('edit', null, id); S.form.self = true; renderOverlay(); break;
+    case 'accnew': case 'accreset': { const p = P(id); if (!p) break;
+      if (!DEMO && num(S.serverVersion, 0) < 7){ toast('Cần cập nhật Apps Script bản mới trước'); break; }
+      if (S.accArm !== a + id){ S.accArm = a + id; t.textContent = a === 'accnew' ? 'Bấm lần nữa để cấp' : 'Bấm lần nữa: mật khẩu cũ hết dùng'; break; }
+      S.accArm = null; t.disabled = true; const old = accOf(p), u = old ? old.tenDangNhap : genUser(p), pw = genPin();
+      try { const r = await api('saveUser', { user: old ? { tenDangNhap:u, vaiTro:old.vaiTro, matKhau:pw } : { tenDangNhap:u, hoTen:p.hoTen, vaiTro:'xem', chi:p.chi || '', nguoiId:p.id, matKhau:pw } });
+        S.users = r.users; S.accMsg = accMsg(p, u, pw); S.overlay = 'acc'; renderOverlay(); render(true); } catch(er){ toast(er.message); t.disabled = false; }
+      break; }
+    case 'acccopy': toast(await copyText(S.accMsg) ? 'Đã chép. Mở Zalo, dán gửi cho người đó.' : 'Máy không cho chép, hãy chụp màn hình'); break;
     case 'add': openForm('new', t.dataset.rel, id); break;
     case 'addroot': openForm('new', 'root', null); break;
     case 'delp': if (!S.form.confirmDel){ S.form.d = readForm(); S.form.confirmDel = true; renderOverlay(); break; }
